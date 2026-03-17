@@ -196,7 +196,42 @@ app.post('/api/login', async (req, res) => {
 
   res.json({
     message: 'Login successful ✅',
+    sessionId: account.sessionId,
   });
+});
+
+// ================================
+// VERIFY EMAIL (forgot password step 1)
+// ================================
+app.post('/api/verify-email', async (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ message: 'Email is required.' });
+  try {
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ message: 'No account found with that email. Please register first.' });
+    res.json({ message: 'Email verified.' });
+  } catch (err) {
+    console.error('Verify email error:', err);
+    res.status(500).json({ message: 'Something went wrong. Please try again.' });
+  }
+});
+
+// ================================
+// RESET PASSWORD (forgot password step 2)
+// ================================
+app.post('/api/reset-password', async (req, res) => {
+  const { email, newPassword } = req.body;
+  if (!email || !newPassword) return res.status(400).json({ message: 'Email and new password are required.' });
+  try {
+    const user = await User.findOne({ email });
+    if (!user) return res.status(404).json({ message: 'No account found with that email.' });
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+    await User.findOneAndUpdate({ email }, { passwordHash });
+    res.json({ message: 'Password reset successfully.' });
+  } catch (err) {
+    console.error('Reset password error:', err);
+    res.status(500).json({ message: 'Something went wrong. Please try again.' });
+  }
 });
 
 // ================================
@@ -224,7 +259,23 @@ res.json({
   fullName,
   email: user.email,
   profileImage: user.profileImage,
+  isGoogleUser: !!user.googleId,
 });
+});
+
+// ================================
+// DELETE ACCOUNT
+// ================================
+app.delete('/api/account/:sessionId', async (req, res) => {
+  const { sessionId } = req.params;
+  try {
+    const user = await User.findOneAndDelete({ sessionId });
+    if (!user) return res.status(404).json({ message: 'Account not found.' });
+    res.json({ message: 'Account deleted successfully.' });
+  } catch (err) {
+    console.error('Delete account error:', err);
+    res.status(500).json({ message: 'Failed to delete account.' });
+  }
 });
 
 // ================================
@@ -345,6 +396,49 @@ if (!emailRegex.test(email)) {
     }
   }
 );
+
+// ================================
+// GOOGLE AUTH
+// ================================
+app.post('/api/auth/google', async (req, res) => {
+  const { googleId, email, fullName, profileImage } = req.body;
+
+  if (!googleId || !email) {
+    return res.status(400).json({ message: 'Missing Google account info' });
+  }
+
+  try {
+    let user = await User.findOne({ $or: [{ googleId }, { email }] });
+
+    if (user) {
+      if (!user.googleId) user.googleId = googleId;
+      if (profileImage && !user.profileImage) user.profileImage = profileImage;
+      await user.save();
+      return res.json({ sessionId: user.sessionId, message: 'Login successful ✅' });
+    }
+
+    const nameParts = (fullName || '').trim().split(' ');
+    const firstName = nameParts[0] || '';
+    const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : '';
+    const middleName = nameParts.length > 2 ? nameParts.slice(1, -1).join(' ') : '';
+
+    const sessionId = uuidv4();
+    await User.create({
+      sessionId,
+      firstName,
+      middleName,
+      lastName,
+      email,
+      googleId,
+      profileImage: profileImage || '',
+    });
+
+    return res.status(201).json({ sessionId, message: 'Account created ✅' });
+  } catch (err) {
+    console.error('Google auth error:', err);
+    return res.status(500).json({ message: 'Server error during Google sign-in' });
+  }
+});
 
 // ================================
 // PROPERTY OWNER LOGIN

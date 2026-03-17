@@ -18,6 +18,9 @@ const UserSchema = new mongoose.Schema(
     // ACCOUNT CREDENTIALS (Page 2)
     email: { type: String, default: "" },
     passwordHash: { type: String, default: "" },
+
+    // GOOGLE AUTH
+    googleId: { type: String, default: "" },
   },
   { timestamps: true }
 );
